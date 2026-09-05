@@ -1,0 +1,15 @@
+{application, wa_parser, [
+  {description, "WebAssembly binary format parser for the Erlang ecosystem"},
+  {vsn, "0.1.0"},
+  {modules, []},
+  {registered, []},
+  {applications, [kernel, stdlib]},
+  {licenses, ["Unlicense"]},
+  {links, [{"Pijul", "https://nest.pijul.com/couchemar/wa_parser"}]},
+  %% UNLICENSE is not one of rebar3's default packaged paths; include it
+  %% explicitly so the license text ships in the tarball.
+  {include_paths, ["UNLICENSE"]},
+  %% The Elixir wrapper (wa_parser_ex), the WAT fixtures, tests and editor
+  %% metadata live in the same repo but are not part of the Erlang package.
+  {exclude_paths, ["wa_parser_ex", "test_data", ".kiro"]}
+]}.
