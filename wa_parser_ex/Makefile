@@ -40,6 +40,7 @@ package: ## Build the hex tarball with the hex core dep (WA_PARSER_PATH unset)
 
 publish: ## Publish the wrapper to hex; run AFTER the core is published
 	@echo ">> publishing wa_parser_ex. The core wa_parser must already be on hex."
+	env -u WA_PARSER_PATH mix deps.get
 	env -u WA_PARSER_PATH mix hex.publish
 
 clean: ## Remove build artifacts and fetched deps
