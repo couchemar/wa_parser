@@ -1,11 +1,11 @@
 {application, wa_parser, [
   {description, "WebAssembly binary format parser for the Erlang ecosystem"},
-  {vsn, "0.1.0"},
+  {vsn, "0.1.1"},
   {modules, []},
   {registered, []},
   {applications, [kernel, stdlib]},
   {licenses, ["Unlicense"]},
-  {links, [{"Pijul", "https://nest.pijul.com/couchemar/wa_parser"}]},
+  {links, [{"GitHub", "https://github.com/couchemar/wa_parser"}]},
   %% UNLICENSE is not one of rebar3's default packaged paths; include it
   %% explicitly so the license text ships in the tarball.
   {include_paths, ["UNLICENSE"]},

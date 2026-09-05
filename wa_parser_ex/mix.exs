@@ -1,8 +1,8 @@
 defmodule WaParserEx.MixProject do
   use Mix.Project
 
-  @version "0.1.0"
-  @source_url "https://nest.pijul.com/couchemar/wa_parser"
+  @version "0.1.1"
+  @source_url "https://github.com/couchemar/wa_parser"
 
   def project do
     [
@@ -52,7 +52,7 @@ defmodule WaParserEx.MixProject do
     [
       licenses: ["Unlicense"],
       links: %{
-        "Pijul" => @source_url,
+        "GitHub" => @source_url,
         "Core (Erlang)" => "https://hex.pm/packages/wa_parser"
       },
       files: ~w(lib mix.exs README.md UNLICENSE .formatter.exs)
