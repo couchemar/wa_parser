@@ -10,6 +10,8 @@ Elixir wrapper `wa_parser_ex`, which are versioned together.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-30
+
 ### Added
 
 - Support for the WebAssembly compact import section proposal. The import
@@ -38,4 +40,5 @@ Elixir wrapper `wa_parser_ex`, which are versioned together.
 - Previous released version.
 
 [Unreleased]: https://github.com/couchemar/wa_parser
+[0.1.2]: https://github.com/couchemar/wa_parser
 [0.1.1]: https://github.com/couchemar/wa_parser

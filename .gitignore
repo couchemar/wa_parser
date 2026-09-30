@@ -13,3 +13,4 @@ wa_parser_ex/deps
 doc/
 rebar3.crashdump
 .pijul
+**/*.tar

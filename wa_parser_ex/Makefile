@@ -13,11 +13,14 @@ export WA_PARSER_PATH ?= ..
 
 .DEFAULT_GOAL := help
 
-.PHONY: help deps compile test format package publish clean
+.PHONY: help deps refresh compile test format package publish clean
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
 		| awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
+
+refresh: ## Drop a stale local-core copy (only relevant under WA_PARSER_PATH)
+	rm -rf deps/wa_parser _build/*/lib/wa_parser
 
 deps: ## Fetch deps (dev: sibling core via WA_PARSER_PATH)
 	mix deps.get
@@ -33,12 +36,15 @@ format: ## Check Elixir formatting
 
 # Packaging/publish must NOT use the dev path dep: unset WA_PARSER_PATH so the
 # {:wa_parser, "~> 0.1"} hex dep is used. This requires the core to already be
-# published on hex (otherwise deps.get for the wrapper fails).
-package: ## Build the hex tarball with the hex core dep (WA_PARSER_PATH unset)
+# published on hex (otherwise deps.get for the wrapper fails). Both targets
+# `refresh` first to drop any stale copied path-dep from prior WA_PARSER_PATH
+# dev, so the tarball resolves against the hex core cleanly.
+package: refresh ## Build the hex tarball with the hex core dep (WA_PARSER_PATH unset)
 	@echo ">> building package with WA_PARSER_PATH unset (uses {:wa_parser, \"~> 0.1\"})"
+	env -u WA_PARSER_PATH mix deps.get
 	env -u WA_PARSER_PATH mix hex.build
 
-publish: ## Publish the wrapper to hex; run AFTER the core is published
+publish: refresh ## Publish the wrapper to hex; run AFTER the core is published
 	@echo ">> publishing wa_parser_ex. The core wa_parser must already be on hex."
 	env -u WA_PARSER_PATH mix deps.get
 	env -u WA_PARSER_PATH mix hex.publish
