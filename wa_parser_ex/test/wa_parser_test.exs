@@ -214,6 +214,25 @@ defmodule WaParserTest do
              ]
     end
 
+    test "wat: 22_compact_import (compact form A via --enable-compact-imports)" do
+      # Two imports share the module name "env"; wat2wasm emits a single compact
+      # (0x7F) entry. The parser must flatten it back into two individual imports
+      # with the shared module name applied to each.
+      sections =
+        parse_wat_sections("22_compact_import")
+        |> Enum.filter(fn {k, _} -> k in [:section_type, :section_body] end)
+
+      import_body =
+        sections
+        |> Enum.chunk_every(2)
+        |> Enum.find_value(fn
+          [{:section_type, :import}, {:section_body, body}] -> body
+          _ -> nil
+        end)
+
+      assert import_body == [{"env", "a", {:func, 0}}, {"env", "b", {:func, 1}}]
+    end
+
     test "wat: 12_memory_data" do
       assert parse_wat_sections("12_memory_data") == [
                section_type: :type,
@@ -909,6 +928,122 @@ defmodule WaParserTest do
                {:section_type, :export},
                {:section_body, [{"t", {:tag, 0}}]}
              ]
+    end
+
+    # -- compact import section proposal (markers 0x7F / 0x7E) ---------------
+    # The import section's leading count is the TOTAL number of imports; a
+    # compact entry shares a module name (0x7F) or module name + externtype
+    # (0x7E) across several field names. All forms flatten to the same
+    # {module, field, desc} list as the standard encoding.
+
+    test "standard import form is unchanged (two imports)" do
+      # count 2, both standard: env.a (func 0), env.b (func 1)
+      import_payload =
+        <<2, 3, "env", 1, "a", 0x00, 0, 3, "env", 1, "b", 0x00, 1>>
+
+      type_payload = <<1, 0x60, 0, 0>>
+
+      mod = @header <> sec(1, type_payload) <> sec(2, import_payload)
+
+      assert mod
+             |> parse_binary()
+             |> Enum.filter(fn {k, _} -> k == :section_body end)
+             |> Enum.at(1) ==
+               {:section_body, [{"env", "a", {:func, 0}}, {"env", "b", {:func, 1}}]}
+    end
+
+    test "compact form A (0x7F): imports share a module name" do
+      # total count 2; one compact entry: module wasi..., empty field, 0x7F,
+      # inner count 2, items (environ_sizes_get, func 0) and (environ_get, func 0)
+      import_payload =
+        <<2, 22, "wasi_snapshot_preview1", 0, 0x7F, 2, 17, "environ_sizes_get", 0x00, 0, 11,
+          "environ_get", 0x00, 0>>
+
+      type_payload = <<1, 0x60, 0, 0>>
+
+      mod = @header <> sec(1, type_payload) <> sec(2, import_payload)
+
+      assert mod
+             |> parse_binary()
+             |> Enum.filter(fn {k, _} -> k == :section_body end)
+             |> Enum.at(1) ==
+               {:section_body,
+                [
+                  {"wasi_snapshot_preview1", "environ_sizes_get", {:func, 0}},
+                  {"wasi_snapshot_preview1", "environ_get", {:func, 0}}
+                ]}
+    end
+
+    test "compact form A with an empty item list contributes zero imports" do
+      # total count 1: a compact form-A entry with inner count 0 (yields nothing),
+      # followed by one standard import. The empty compact entry must be consumed
+      # without producing an import or leaving trailing bytes.
+      import_payload =
+        <<1, 3, "env", 0, 0x7F, 0, 3, "env", 1, "a", 0x00, 0>>
+
+      type_payload = <<1, 0x60, 0, 0>>
+
+      mod = @header <> sec(1, type_payload) <> sec(2, import_payload)
+
+      assert mod
+             |> parse_binary()
+             |> Enum.filter(fn {k, _} -> k == :section_body end)
+             |> Enum.at(1) == {:section_body, [{"env", "a", {:func, 0}}]}
+    end
+
+    test "compact form B (0x7E): imports share a module name and externtype" do
+      # total count 2; one compact entry: module env, empty field, 0x7E,
+      # shared externtype func 0, inner count 2, names a and b
+      import_payload = <<2, 3, "env", 0, 0x7E, 0x00, 0, 2, 1, "a", 1, "b">>
+      type_payload = <<1, 0x60, 0, 0>>
+
+      mod = @header <> sec(1, type_payload) <> sec(2, import_payload)
+
+      assert mod
+             |> parse_binary()
+             |> Enum.filter(fn {k, _} -> k == :section_body end)
+             |> Enum.at(1) ==
+               {:section_body, [{"env", "a", {:func, 0}}, {"env", "b", {:func, 0}}]}
+    end
+
+    test "compact form B with an empty name list contributes zero imports" do
+      # total count 1: a compact form-B entry with inner count 0 (yields nothing),
+      # followed by one standard import. The empty compact entry must be consumed.
+      import_payload =
+        <<1, 3, "env", 0, 0x7E, 0x00, 0, 0, 3, "env", 1, "a", 0x00, 0>>
+
+      type_payload = <<1, 0x60, 0, 0>>
+
+      mod = @header <> sec(1, type_payload) <> sec(2, import_payload)
+
+      assert mod
+             |> parse_binary()
+             |> Enum.filter(fn {k, _} -> k == :section_body end)
+             |> Enum.at(1) == {:section_body, [{"env", "a", {:func, 0}}]}
+    end
+
+    test "an invalid importdesc tag raises a structured parse error" do
+      # standard entry but the descriptor byte is 0x05 (not 0x00..0x04 nor a marker)
+      import_payload = <<1, 3, "env", 1, "a", 0x05>>
+
+      e =
+        assert_raise WaParser.ParseError, fn ->
+          parse_binary(@header <> sec(2, import_payload))
+        end
+
+      assert e.reason == :invalid_importdesc
+    end
+
+    test "a compact marker with a non-empty field name is malformed" do
+      # 0x7F marker but the field name is "a" (non-empty)
+      import_payload = <<1, 3, "env", 1, "a", 0x7F, 0>>
+
+      e =
+        assert_raise WaParser.ParseError, fn ->
+          parse_binary(@header <> sec(2, import_payload))
+        end
+
+      assert e.reason == :malformed_compact_import
     end
 
     test "unknown opcode carries its hex byte" do

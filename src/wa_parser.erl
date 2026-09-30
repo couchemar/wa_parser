@@ -270,7 +270,15 @@ section_body(custom, Binary) ->
             {#{name => N, content => Rest}, <<>>}
     end;
 
-section_body(import, Binary) -> vec(fun imported/1, Binary);
+%% Import section: the leading u32 is the TOTAL number of imports (not the
+%% number of physical entries). A standard entry yields one import; a
+%% compact-import-section entry (markers 0x7F/0x7E) yields several sharing a
+%% module name (and, for 0x7E, an externtype). Loop reading entries until Count
+%% imports have accumulated, so the section stays a flat {Module, Name, Desc}
+%% list regardless of encoding.
+section_body(import, Binary) ->
+    {Count, Rest} = wa_parser_atomic:u32(Binary),
+    import_entries(Count, Rest, []);
 
 section_body(start, Binary) ->
     {Idx, Rest} = funcidx(Binary),
@@ -394,11 +402,60 @@ named_indirect_entry(Binary) ->
     {Inner, Rest1} = namemap(Rest),
     {{Outer, Inner}, Rest1}.
 
+%% Read import-section entries until Count imports have accumulated. A standard
+%% entry yields one import; a compact entry yields its inner count. Decrement
+%% by the number produced, not by 1.
+import_entries(Remaining, Rest, Acc) when Remaining =< 0 ->
+    {lists:reverse(Acc), Rest};
+import_entries(Remaining, Binary, Acc) ->
+    {Imports, Rest} = imported(Binary),
+    import_entries(Remaining - length(Imports), Rest, lists:reverse(Imports, Acc)).
+
 imported(Binary) ->
     {Module, Rest} = name(Binary),
     {Nm, Rest1} = name(Rest),
+    imported_desc(Module, Nm, Rest1).
+
+%% Returns {[{Module, Name, Desc}], Rest}. The standard import form yields a
+%% single import; the compact-import-section forms (added below) yield a list.
+%% Standard form: the byte after the module + field name is a real importdesc
+%% tag (0x00..0x04). Pass the full binary so importdesc/1 consumes the tag.
+imported_desc(Module, Nm, <<Tag, _/binary>> = Rest1) when Tag =< 16#04 ->
     {Desc, Rest2} = importdesc(Rest1),
-    {{Module, Nm, Desc}, Rest2}.
+    {[{Module, Nm, Desc}], Rest2};
+%% Compact form A (marker 0x7F): several imports share the module name. The
+%% field name must be empty; then count:u32 and count (name, externtype) items
+%% follow the marker. Expands to one import per item.
+imported_desc(Module, <<>>, <<16#7F, Rest/binary>>) ->
+    {Items, Rest1} = vec(fun importitem/1, Rest),
+    {[{Module, Nm2, Xt} || {Nm2, Xt} <- Items], Rest1};
+%% Compact form B (marker 0x7E): several imports share the module name AND the
+%% externtype. The field name must be empty; the shared externtype is read ONCE
+%% (before the count), then count:u32 and count field names follow. Expands to
+%% one import per name, all carrying the single externtype.
+imported_desc(Module, <<>>, <<16#7E, Rest/binary>>) ->
+    {Xt, Rest1} = importdesc(Rest),
+    {Names, Rest2} = vec(fun name/1, Rest1),
+    {[{Module, Nm2, Xt} || Nm2 <- Names], Rest2};
+%% Compact marker (0x7F/0x7E) but the field name was NOT empty: the proposal
+%% requires an empty field name for a compact entry, so this is malformed.
+imported_desc(_Module, Nm, <<Marker, _/binary>>) when Marker =:= 16#7F; Marker =:= 16#7E ->
+    parse_error(malformed_compact_import,
+                bin_fmt("compact import marker 0x~2.16.0B requires an empty field name, got ~p",
+                        [Marker, Nm]));
+%% Neither a valid importdesc tag (0x00..0x04) nor a compact marker.
+imported_desc(_Module, _Nm, <<Tag, _/binary>>) ->
+    parse_error(invalid_importdesc,
+                bin_fmt("invalid importdesc tag 0x~2.16.0B", [Tag]));
+%% Entry ends before the importdesc/marker byte.
+imported_desc(_Module, _Nm, <<>>) ->
+    parse_error(truncated, <<"import entry ends before importdesc">>).
+
+%% One (field name, externtype) pair inside a compact import list.
+importitem(Binary) ->
+    {Nm2, Rest} = name(Binary),
+    {Xt, Rest1} = importdesc(Rest),
+    {{Nm2, Xt}, Rest1}.
 
 importdesc(<<16#00, Rest/binary>>) ->
     {Fun, Rest1} = typeidx(Rest),
