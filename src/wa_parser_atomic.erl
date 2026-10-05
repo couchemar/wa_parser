@@ -14,17 +14,71 @@ i32(Bin) -> leb(Bin, 5, 32, signed).
 i64(Bin) -> leb(Bin, 10, 64, signed).
 s33(Bin) -> leb(Bin, 5, 33, signed).
 
-f32(<<V:32/little-float, Rest/binary>>) ->
-    {V, Rest};
+%% Erlang floats cannot represent infinity or NaN, and a `<<V:N/little-float>>'
+%% match FAILS on those bit patterns rather than yielding a value. Matching on
+%% the float type therefore sent every `f32.const inf/nan' and `f64.const
+%% inf/nan' into the error clause below, which then reported the size of the
+%% entire remaining module — a bogus "f64 constant needs 8 bytes, got 968232"
+%% for a perfectly well-formed constant, with the parser desynced from that
+%% point on. Real toolchains emit these constantly: one `f64.const' NaN in the
+%% javy QuickJS module was enough to abort a 1.3 MB parse.
+%%
+%% So match the raw bits instead. An all-ones exponent is an infinity when the
+%% fraction is zero and a NaN otherwise; the sign bit is independent of both:
+%%
+%%     f32.const  1.5         ->  1.5              (an ordinary Erlang float)
+%%     f32.const  inf         ->  '+inf'
+%%     f32.const -inf         ->  '-inf'
+%%     f32.const  nan:0x1234  ->  {'nan', 16#401234}
+%%     f32.const -nan:0x1234  ->  {'-nan', 16#401234}
+%%
+%% Payload is the whole fraction field, quiet bit included, so the decode is
+%% lossless and reversible: sign, payload and the all-ones exponent rebuild the
+%% exact 32/64-bit pattern. Keeping the quiet bit is not cosmetic —
+%% wasm-validate accepts signalling NaNs such as 0x7F800001, and dropping that
+%% bit would conflate them with the quiet NaN carrying the same low payload
+%% (0x7FC00001). A bare `nan' therefore carries payload 16#400000 (f32) or
+%% 16#8000000000000 (f64) — the quiet bit sits in the payload rather than being
+%% implied — while `nan:0x1234' surfaces as 16#1234.
+
+f32(<<Bits:32/little-unsigned, Rest/binary>>) ->
+    {f32_value(Bits), Rest};
 f32(Bin) ->
     parse_error(truncated,
                 bin_fmt("f32 constant needs 4 bytes, got ~B", [byte_size(Bin)])).
 
-f64(<<V:64/little-float, Rest/binary>>) ->
-    {V, Rest};
+f64(<<Bits:64/little-unsigned, Rest/binary>>) ->
+    {f64_value(Bits), Rest};
 f64(Bin) ->
     parse_error(truncated,
                 bin_fmt("f64 constant needs 8 bytes, got ~B", [byte_size(Bin)])).
+
+%% Only the sign bit and the fraction-field width differ between the two sizes.
+
+f32_value(Bits) when (Bits band 16#7F800000) =:= 16#7F800000 ->
+    non_finite(Bits, 16#80000000, 16#7FFFFF);
+f32_value(Bits) ->
+    <<V:32/little-float>> = <<Bits:32/little>>,
+    V.
+
+f64_value(Bits) when (Bits band 16#7FF0000000000000) =:= 16#7FF0000000000000 ->
+    non_finite(Bits, 16#8000000000000000, 16#FFFFFFFFFFFFF);
+f64_value(Bits) ->
+    <<V:64/little-float>> = <<Bits:64/little>>,
+    V.
+
+non_finite(Bits, SignBit, FractionMask) ->
+    Negative = (Bits band SignBit) =/= 0,
+    case Bits band FractionMask of
+        0 when Negative ->
+            '-inf';
+        0 ->
+            '+inf';
+        Payload when Negative ->
+            {'-nan', Payload};
+        Payload ->
+            {'nan', Payload}
+    end.
 
 %% Takes at most MaxBytes of LEB128 wire bytes, enforces the `Bits`
 %% width limit, then hands the original wire bytes to the byte-oriented

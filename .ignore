@@ -12,3 +12,7 @@ test_data/build
 wa_parser_ex/deps
 doc/
 rebar3.crashdump
+
+# Real-world fixtures: generated, not committed (see test_data/real/README.md)
+/test_data/real/*.wasm
+/.cache/

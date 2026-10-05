@@ -10,6 +10,27 @@ Elixir wrapper `wa_parser_ex`, which are versioned together.
 
 ## [Unreleased]
 
+### Fixed
+
+- `f32.const`/`f64.const` with an infinite or NaN value aborted the parse.
+  Matching a constant with a float-type binary (`<<V:64/little-float>>`) *fails*
+  on non-finite bit patterns instead of yielding a value, so the constant fell
+  into the truncation clause and the error reported the size of the entire
+  remaining module — `f64 constant needs 8 bytes, got 968232` for a perfectly
+  well-formed constant, with the parser desynced from that point on. Real
+  toolchains emit these constantly: a single `f64.const` NaN in the javy
+  QuickJS module aborted the whole 1.3 MB parse.
+
+### Changed
+
+- A non-finite float constant now decodes instead of raising: `+inf`/`-inf`
+  atoms, and NaN as `{'nan', Payload}` / `{'-nan', Payload}`. Finite constants
+  remain ordinary Erlang floats. `Payload` is the raw fraction field with the
+  quiet bit included (`16#400000` for a bare f32 `nan`), which keeps the decode
+  reversible and keeps signalling NaNs distinct from quiet ones — `wasm-validate`
+  accepts both, so dropping that bit would lose information. Consumers matching
+  on a constant must handle these four shapes.
+
 ## [0.1.2] - 2026-09-30
 
 ### Added

@@ -306,6 +306,116 @@ defmodule WaParserTest do
              ]
     end
 
+    # An Erlang float cannot hold infinity or NaN, and matching those bit
+    # patterns with a float-type binary fails rather than yielding a value, so
+    # non-finite constants decode to `+inf`/`-inf` or a sign-and-payload tuple.
+    # Finite constants stay ordinary floats. Both paths are pinned here because
+    # a desync anywhere past the first `inf` used to abort a whole-module parse.
+    # Payloads are the raw fraction field, quiet bit included: a bare `nan` is
+    # 0x400000, while `nan:0x1234` is 0x1234.
+    test "wat: 23_float_nonfinite" do
+      assert parse_wat_sections("23_float_nonfinite") == [
+               section_type: :type,
+               section_body: [{[], []}],
+               section_type: :function,
+               section_body: [0, 0],
+               section_type: :export,
+               section_body: [{"f32_nonfinite", {:func, 0}}, {"f64_nonfinite", {:func, 1}}],
+               section_type: :code,
+               section_body: [
+                 %{
+                   code: %{
+                     expr: [
+                       {:"f32.const", 1.5},
+                       :drop,
+                       {:"f32.const", :"+inf"},
+                       :drop,
+                       {:"f32.const", :"-inf"},
+                       :drop,
+                       {:"f32.const", {:nan, 0x400000}},
+                       :drop,
+                       {:"f32.const", {:"-nan", 0x1234}},
+                       :drop
+                     ],
+                     locals: []
+                   },
+                   size: 32
+                 },
+                 %{
+                   code: %{
+                     expr: [
+                       {:"f64.const", 1.5},
+                       :drop,
+                       {:"f64.const", :"+inf"},
+                       :drop,
+                       {:"f64.const", :"-inf"},
+                       :drop,
+                       {:"f64.const", {:nan, 0x8000000000000}},
+                       :drop
+                     ],
+                     locals: []
+                   },
+                   size: 42
+                 }
+               ]
+             ]
+    end
+
+    # The real-world shape, not a toy: the constant sits inside nested
+    # `if`/`block`, and there is live code after it. A body is accumulated as a
+    # stream, so failing at the constant desyncs the remainder of the body
+    # instead of just that instruction — which is how one NaN in the QuickJS
+    # module aborted the parse of all 1468 function bodies.
+    test "wat: 24_float_nonfinite_nested" do
+      assert parse_wat_sections("24_float_nonfinite_nested") == [
+               section_type: :type,
+               section_body: [{[:f64], [:f64]}],
+               section_type: :function,
+               section_body: [0],
+               section_type: :export,
+               section_body: [{"scale", {:func, 0}}],
+               section_type: :code,
+               section_body: [
+                 %{
+                   code: %{
+                     expr: [
+                       {:"f64.const", 1.5},
+                       {:"local.set", 1},
+                       {:"local.get", 0},
+                       {:"f64.const", 0.0},
+                       :"f64.eq",
+                       {:if,
+                        %{
+                          else: [],
+                          then: [
+                            {:"f64.const", :"+inf"},
+                            {:"local.set", 1},
+                            {:block,
+                             %{
+                               blocktype: :f64,
+                               instr: [
+                                 {:"local.get", 1},
+                                 {:"f64.const", {:nan, 0x8000000000000}},
+                                 :"f64.mul",
+                                 {:br, 0}
+                               ]
+                             }},
+                            :drop
+                          ],
+                          blocktype: :empty
+                        }},
+                       {:"local.get", 1},
+                       {:"f64.const", :"-inf"},
+                       :"f64.add"
+                     ],
+                     locals: [%{type: :f64, num: 1}]
+                   },
+                   size: 71
+                 }
+               ]
+             ]
+    end
+
     test "wat: 14_bulk" do
       assert parse_wat_sections("14_bulk") == [
                section_type: :type,

@@ -19,6 +19,9 @@ compile: ## Compile the Erlang core
 test: ## Run the full suite (delegates to the Elixir wrapper)
 	$(MAKE) -C wa_parser_ex test
 
+fixtures-real: ## Generate the large real-world fixtures (needs network on first run)
+	./scripts/fetch-real-world-fixtures.sh
+
 format: ## Check Erlang formatting (rebar3 fmt if available, else no-op)
 	@rebar3 fmt --check 2>/dev/null || echo "rebar3 fmt not available; skipping"
 
