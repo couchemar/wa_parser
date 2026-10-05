@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 This file covers both packages in the repo: the Erlang core `wa_parser` and the
 Elixir wrapper `wa_parser_ex`, which are versioned together.
 
-## [Unreleased]
+## [0.1.3] - 2026-10-05
 
 ### Fixed
 
@@ -61,5 +61,6 @@ Elixir wrapper `wa_parser_ex`, which are versioned together.
 - Previous released version.
 
 [Unreleased]: https://github.com/couchemar/wa_parser
+[0.1.3]: https://github.com/couchemar/wa_parser
 [0.1.2]: https://github.com/couchemar/wa_parser
 [0.1.1]: https://github.com/couchemar/wa_parser
